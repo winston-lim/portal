@@ -49,6 +49,7 @@ import FileModal from "./filemodal";
 import AnnotatorSettings from "./utils/annotatorsettings";
 import FormatTimerSeconds from "./utils/timer";
 import { RegisteredModel } from "./model";
+import AnnotatorGraph from "./AnnotatorGraph";
 
 type Point = [number, number];
 type MapType = L.DrawMap;
@@ -148,6 +149,7 @@ interface AnnotatorState {
     opacity: number;
   };
   currAnnotationPlaybackId: number;
+  isAnalyticsMode: boolean;
 }
 
 /**
@@ -205,6 +207,8 @@ export default class Annotator extends Component<
   /* Reference to background Image or Video */
   backgroundImg: HTMLElement | null;
 
+  analyticsData: any;
+
   constructor(props: AnnotatorProps) {
     super(props);
 
@@ -246,6 +250,7 @@ export default class Annotator extends Component<
         },
       },
       currAnnotationPlaybackId: 0,
+      isAnalyticsMode: false,
     };
 
     this.toaster = new Toaster({}, {});
@@ -267,6 +272,9 @@ export default class Annotator extends Component<
     /* Image Bar Reference to Track Which Image is Selected */
     this.imagebarRef = React.createRef();
     this.backgroundImg = null;
+
+    /* Analytics data */
+    this.analyticsData = {};
 
     this.selectAsset = this.selectAsset.bind(this);
     this.showToaster = this.showToaster.bind(this);
@@ -366,6 +374,8 @@ export default class Annotator extends Component<
       this.props.loadedModel &&
       this.props.loadedModel.hash !== this.state.tagInfo.modelHash
     ) {
+      // requires this to prevent crashing on model change
+      this.analyticsData = {};
       APIGetModelTags(this.props.loadedModel.hash)
         .then(result => {
           const tagInfo = {
@@ -723,7 +733,8 @@ export default class Annotator extends Component<
     } else if (reanalyse) this.handleProgressToast();
     await this.getInference(this.currentAsset, reanalyse);
     await this.updateImage();
-    if (this.currentAsset.type === "video")
+    // do not auto play in analytics mode
+    if (this.currentAsset.type === "video" && !this.state.isAnalyticsMode)
       this.videoOverlay.getElement()?.play();
     this.setState({
       predictDone: 0,
@@ -787,6 +798,8 @@ export default class Annotator extends Component<
       )
         .then(response => {
           if (this.currentAsset.url === asset.url && singleAnalysis) {
+            // update analytics data per inference
+            this.analyticsData = response.data;
             const videoElement = this.videoOverlay.getElement();
             /**
              * Recursive Callback function that
@@ -798,12 +811,17 @@ export default class Annotator extends Component<
               metadata: VideoFrameMetadata
             ) => {
               /* Calculating the refresh rate of annotation rendering */
+              // frameInterval = frames per prediction
+              // fps = frames per second
+              // frameInterval / fps = seconds per prediction
               const secondsInterval =
                 this.state.inferenceOptions.video.frameInterval /
                 response.data.fps;
+              // prediction time / time per prediction = prediction count % response.data.fps;
               const quotient = Math.floor(metadata.mediaTime / secondsInterval);
 
               /* Interval to determine the refresh-rate of annotation */
+              // key = prediction time  = (prediction count % response.data.fps) * seconds per prediction * 1000(miliseconds)
               const key = Math.floor(
                 quotient * secondsInterval * 1000
               ).toString();
@@ -1173,6 +1191,7 @@ export default class Annotator extends Component<
 
     const currentVideoElement = this.videoOverlay.getElement();
     if (!isAssetReselection) {
+      this.analyticsData = {};
       this.setState({ currentAssetAnnotations: [] });
       this.annotationGroup.eachLayer(layer => {
         this.annotationGroup.removeLayer(layer);
@@ -1535,6 +1554,32 @@ export default class Annotator extends Component<
     );
   }
 
+  public setAnalyticsMode = (isEnabled: boolean): void => {
+    const videoElement = this.videoOverlay?.getElement();
+
+    if (videoElement) {
+      videoElement.pause();
+    }
+    this.setState({
+      isAnalyticsMode: isEnabled,
+    });
+  };
+
+  public setVideoOverlayTime = (dataPointIndex: number): void => {
+    /* Calculating the refresh rate of annotation rendering */
+    // frameInterval = frames per prediction
+    // fps = frames per second
+    // frameInterval / fps = seconds per prediction
+    const secondsInterval =
+      this.state.inferenceOptions.video.frameInterval / this.analyticsData.fps;
+    const videoElement = this.videoOverlay?.getElement();
+
+    if (videoElement) {
+      videoElement.currentTime = dataPointIndex * secondsInterval;
+      videoElement.pause();
+    }
+  };
+
   render(): JSX.Element {
     /* Prefix for Dynamic Styling of Collapsing Image List */
     const collapsedButtonTheme = this.props.useDarkTheme ? "" : "light-";
@@ -1574,15 +1619,26 @@ export default class Annotator extends Component<
               className={[isCollapsed, "image-bar"].join("")}
               id={"image-bar"}
             >
-              <ImageBar
-                ref={ref => {
-                  this.imagebarRef = ref;
-                }}
-                /* Only visible assets should be shown */
-                assetList={visibleAssets}
-                callbacks={{ selectAssetCallback: this.selectAsset }}
-                {...this.props}
+              <AnnotatorGraph
+                currentAsset={this.currentAsset}
+                isAnalyticsEnabled={this.state.isAnalyticsMode}
+                confidence={this.state.confidence}
+                annotatorData={this.analyticsData}
+                tags={(this.annotationGroup as any)?.tags}
+                setVideoOverlayTime={this.setVideoOverlayTime}
+                loadedModel={this.props.loadedModel}
               />
+              {!this.state.isAnalyticsMode && (
+                <ImageBar
+                  ref={ref => {
+                    this.imagebarRef = ref;
+                  }}
+                  /* Only visible assets should be shown */
+                  assetList={visibleAssets}
+                  callbacks={{ selectAssetCallback: this.selectAsset }}
+                  {...this.props}
+                />
+              )}
             </Card>
           </div>
 
@@ -1657,6 +1713,7 @@ export default class Annotator extends Component<
                 SetFilterArr: this.setFilterArr,
                 ToggleShowSelected: this.toggleShowSelected,
                 SyncAllFolders: this.syncAllFolders,
+                SetAnalyticsMode: this.setAnalyticsMode,
               }}
             />
             {/* File Management Modal */}

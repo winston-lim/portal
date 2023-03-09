@@ -64,6 +64,7 @@ export default class AnnotationMenu extends Component {
       selectedTag: 0,
       selectedAnnotationID: "",
       annotations: [],
+      isAnalyticsChecked: false,
     };
 
     /**
@@ -230,6 +231,13 @@ export default class AnnotationMenu extends Component {
         this.hiddenTagCount[tag] = (this.hiddenTagCount[tag] || 0) + 1;
       }
     });
+  }
+
+  toggleAnalyticsCheckState() {
+    this.setState(prevState => ({
+      ...prevState,
+      isAnalyticsChecked: !prevState.isAnalyticsChecked,
+    }));
   }
 
   render() {
@@ -440,6 +448,26 @@ export default class AnnotationMenu extends Component {
             icon="new-text-box"
             text="Advanced Settings"
             onClick={this.props.callbacks.OpenAdvancedSettings}
+          />
+          <MenuDivider title="Analytics Mode" />
+          <MenuItem
+            disabled={
+              !this.props.isConnected ||
+              !this.props.loadedModel ||
+              isEmpty(this.props.assetList) ||
+              isEmpty(this.props.currentAsset)
+            }
+            icon="chart"
+            text="Enable Analytics Mode"
+            label={
+              <KeyCombo combo={this.state.isAnalyticsChecked ? "X" : " "} />
+            }
+            onClick={() => {
+              this.props.callbacks.SetAnalyticsMode(
+                !this.state.isAnalyticsChecked
+              );
+              this.toggleAnalyticsCheckState();
+            }}
           />
           <MenuDivider title="Filter Tags" />
           <TagSelector
