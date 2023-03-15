@@ -2,69 +2,59 @@
 import { ApexOptions } from "apexcharts";
 import React, { ReactElement, useMemo } from "react";
 import ReactApexChart from "react-apexcharts";
-import { AssetAPIObject } from "../../api/annotation";
-import { RegisteredModel } from "./model";
 
-type Tag = {
-  id: number;
-  name: string;
-};
+type TagName = string;
 
 type Frame = {
-  annotationID: string;
-  bound: number[][];
-  boundType: string;
-  confidence: number;
-  tag: Tag;
+  confidence: number; // 0 to 1
+  tag: { name: TagName };
 };
 
 type AnnotationData = {
   fps: number;
   frames: {
-    [key: string]: Frame[];
+    [key: number]: Frame[];
   };
 };
 
-type SeriesData = {
-  [key: string]: number[];
-};
+type TagFrequency = number;
 
-type Series = {
-  name: string;
-  data: number[];
+type SeriesData = {
+  name: TagName;
+  data: TagFrequency[];
 };
 
 type ChartData = {
-  series: Series[];
+  series: SeriesData[];
   options: ApexOptions;
-  tooltipEnabledSeriesIndexes: number[];
+  tooltipEnabledSeriesIndexes: number[]; // these are filtered series(tags) that have some time interval where count is non zero
 };
 
 type AnnotatorGraphProps = {
-  currentAsset?: AssetAPIObject;
-  isAnalyticsEnabled: boolean;
   confidence: number;
-  annotatorData?: AnnotationData;
-  tags?: {
+  annotatorData: AnnotationData;
+  tags: {
     [key: string]: number;
   };
-  setVideoOverlayTime: (dataPointIndex: number) => void;
-  loadedModel: RegisteredModel | undefined;
+  onChartClick: (dataPointIndex: number) => void;
 };
 
+// Filters based on selected confidence level, then sorts series/tags in descending frequency
 const getSortedSeriesData = (
   tags: { [key: string]: number },
   annotatorData: AnnotationData,
   selectedConfidence: number
-): Series[] => {
-  const seriesData: SeriesData = {};
+): SeriesData[] => {
+  const seriesData: {
+    [key: string]: number[];
+  } = {};
   Object.keys(tags).forEach(tag => {
     seriesData[tag] = [];
   });
-  Object.keys(annotatorData.frames).forEach(frameKey => {
-    const filteredWithCondidence = annotatorData.frames[frameKey].filter(
-      data => data.confidence >= selectedConfidence
-    );
+  Object.keys(annotatorData.frames).forEach((frameKey: string) => {
+    const filteredWithCondidence = annotatorData.frames[
+      parseInt(frameKey, 10)
+    ].filter(data => data.confidence >= selectedConfidence);
     const countMap = filteredWithCondidence.reduce(
       (accum: Map<string, number>, current) =>
         accum.set(current.tag.name, (accum.get(current.tag.name) || 0) + 1),
@@ -88,7 +78,8 @@ const getSortedSeriesData = (
   });
 };
 
-const getTooltipEnabledSeriesIndexes = (series: Series[]): number[] => {
+// Filters out series/tags with zero count in all frames
+const getTooltipEnabledSeriesIndexes = (series: SeriesData[]): number[] => {
   const indexes: number[] = [];
   series.forEach((el, idx) => {
     const filteredData = el.data.filter(data => data !== 0);
@@ -99,7 +90,8 @@ const getTooltipEnabledSeriesIndexes = (series: Series[]): number[] => {
   return indexes;
 };
 
-const updateTooltipStyles = (tooltipItems: number) => {
+// Updates tool tip width based on number of rendered items(filtered series/tags)
+const updateTooltipWidth = (tooltipItems: number) => {
   const element = document.getElementsByClassName("apexcharts-tooltip")[0];
   element.setAttribute(
     "style",
@@ -110,7 +102,7 @@ const updateTooltipStyles = (tooltipItems: number) => {
 const getChartOptions = (
   annotatorData: AnnotationData,
   tooltipEnabledSeriesIndexes: number[],
-  setVideoOverlayTime: (dataPointIndex: number) => void
+  onChartClick: (dataPointIndex: number) => void
 ): ApexOptions => {
   const categories = Object.keys(annotatorData.frames).map(frameKey =>
     parseInt(frameKey, 10)
@@ -131,18 +123,13 @@ const getChartOptions = (
       events: {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         click: (_event, _chartContext, config) => {
-          setVideoOverlayTime(config.dataPointIndex);
+          onChartClick(config.dataPointIndex);
         },
-        beforeMount: (_c, _o) => {
-          console.log("apexchart: mounting");
+        mounted: (_chart, _options) => {
+          updateTooltipWidth(tooltipEnabledSeriesIndexes.length);
         },
-        mounted: (_c, _o) => {
-          console.log("apexchart: mounted");
-          updateTooltipStyles(tooltipEnabledSeriesIndexes.length);
-        },
-        updated: (_c, _o) => {
-          console.log("apexchart: updated");
-          updateTooltipStyles(tooltipEnabledSeriesIndexes.length);
+        updated: (_chart, _options) => {
+          updateTooltipWidth(tooltipEnabledSeriesIndexes.length);
         },
       },
     },
@@ -159,7 +146,7 @@ const getChartOptions = (
     tooltip: {
       theme: "dark",
       x: {
-        formatter: (value: number, _: any) =>
+        formatter: (value: number, _opts: any) =>
           (value / 1000).toFixed(3).toString(),
       },
       enabledOnSeries: tooltipEnabledSeriesIndexes,
@@ -170,72 +157,31 @@ const getChartOptions = (
   };
 };
 
-const isObjectEmpty = (object?: any) => {
-  return Object.keys(object || {}).length === 0;
-};
-
 const AnnotatorGraph = ({
-  isAnalyticsEnabled,
-  currentAsset,
   confidence,
   annotatorData,
   tags,
-  setVideoOverlayTime,
-  loadedModel,
+  onChartClick,
 }: AnnotatorGraphProps): ReactElement => {
-  const showChart =
-    isAnalyticsEnabled &&
-    currentAsset?.type === "video" &&
-    Object.keys(annotatorData || {}).length !== 0;
-
-  const chartData: ChartData | undefined = useMemo(() => {
-    if (
-      isObjectEmpty(annotatorData) ||
-      isObjectEmpty(currentAsset) ||
-      isObjectEmpty(tags)
-    ) {
-      return;
-    }
-    const series = getSortedSeriesData(
-      tags as any,
-      annotatorData as any,
-      confidence
-    );
+  const chartData: ChartData = useMemo(() => {
+    const series = getSortedSeriesData(tags, annotatorData, confidence);
     const tooltipEnabledSeriesIndexes = getTooltipEnabledSeriesIndexes(series);
     const options = getChartOptions(
       annotatorData as any,
       tooltipEnabledSeriesIndexes,
-      setVideoOverlayTime
+      onChartClick
     );
-    // eslint-disable-next-line consistent-return
     return { series, options, tooltipEnabledSeriesIndexes };
-  }, [currentAsset, confidence, annotatorData, tags, loadedModel]);
+  }, [confidence, annotatorData, tags]);
 
   return (
-    <div
-      style={{
-        display: isAnalyticsEnabled ? "block" : "none",
-        position: "relative",
-        minWidth: "100%",
-        height: "100px",
-      }}
-    >
-      {!showChart && isAnalyticsEnabled && currentAsset?.type === "image" && (
-        <div>Analytics available for video assets only</div>
-      )}
-      {!showChart && isAnalyticsEnabled && currentAsset?.type === "video" && (
-        <div>No annotation data for this model - run analytics first</div>
-      )}
-      <div style={{ display: showChart ? "block" : "none" }}>
-        {showChart && chartData && (
-          <ReactApexChart
-            options={chartData?.options}
-            series={chartData?.series}
-            height="100px"
-            width="100%"
-          />
-        )}
-      </div>
+    <div style={{ minWidth: "100%", height: "100px" }}>
+      <ReactApexChart
+        options={chartData?.options}
+        series={chartData?.series}
+        height="100px"
+        width="100%"
+      />
     </div>
   );
 };

@@ -1590,6 +1590,13 @@ export default class Annotator extends Component<
       this.isAssetVisible()
     );
 
+    const { isAnalyticsMode } = this.state;
+    const isVideoAsset = this.currentAsset.type === "video";
+    const isAnnotationDataAvailable =
+      Object.keys(this.analyticsData || {}).length !== 0;
+    const isChartEnabled =
+      isAnalyticsMode && isVideoAsset && isAnnotationDataAvailable;
+
     return (
       <div>
         <Toaster {...this.state} ref={this.refHandlers.toaster} />
@@ -1619,15 +1626,24 @@ export default class Annotator extends Component<
               className={[isCollapsed, "image-bar"].join("")}
               id={"image-bar"}
             >
-              <AnnotatorGraph
-                currentAsset={this.currentAsset}
-                isAnalyticsEnabled={this.state.isAnalyticsMode}
-                confidence={this.state.confidence}
-                annotatorData={this.analyticsData}
-                tags={(this.annotationGroup as any)?.tags}
-                setVideoOverlayTime={this.setVideoOverlayTime}
-                loadedModel={this.props.loadedModel}
-              />
+              {/* Wrong selected asset type */}
+              {!isChartEnabled && isAnalyticsMode && !isVideoAsset && (
+                <div>Analytics available for video assets only</div>
+              )}
+              {/* No annotation data for selected asset */}
+              {!isChartEnabled && isAnalyticsMode && isVideoAsset && (
+                <div>
+                  No annotation data for this model - run analytics first
+                </div>
+              )}
+              {isChartEnabled && (
+                <AnnotatorGraph
+                  confidence={this.state.confidence}
+                  annotatorData={this.analyticsData}
+                  tags={(this.annotationGroup as any).tags}
+                  onChartClick={this.setVideoOverlayTime}
+                />
+              )}
               {!this.state.isAnalyticsMode && (
                 <ImageBar
                   ref={ref => {
