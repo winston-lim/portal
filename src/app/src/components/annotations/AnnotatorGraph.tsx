@@ -5,7 +5,7 @@ import ReactApexChart from "react-apexcharts";
 
 type TagName = string;
 
-type Frame = {
+type FrameData = {
   confidence: number; // 0 to 1
   tag: { name: TagName };
 };
@@ -13,7 +13,7 @@ type Frame = {
 type AnnotationData = {
   fps: number;
   frames: {
-    [key: number]: Frame[];
+    [key: number]: FrameData[];
   };
 };
 
@@ -32,7 +32,7 @@ type ChartData = {
 
 type AnnotatorGraphProps = {
   confidence: number;
-  annotatorData: AnnotationData;
+  annotationData: AnnotationData;
   tags: {
     [key: string]: number;
   };
@@ -42,7 +42,7 @@ type AnnotatorGraphProps = {
 // Filters based on selected confidence level, then sorts series/tags in descending frequency
 const getSortedSeriesData = (
   tags: { [key: string]: number },
-  annotatorData: AnnotationData,
+  annotationData: AnnotationData,
   selectedConfidence: number
 ): SeriesData[] => {
   const seriesData: {
@@ -51,8 +51,8 @@ const getSortedSeriesData = (
   Object.keys(tags).forEach(tag => {
     seriesData[tag] = [];
   });
-  Object.keys(annotatorData.frames).forEach((frameKey: string) => {
-    const filteredWithCondidence = annotatorData.frames[
+  Object.keys(annotationData.frames).forEach((frameKey: string) => {
+    const filteredWithCondidence = annotationData.frames[
       parseInt(frameKey, 10)
     ].filter(data => data.confidence >= selectedConfidence);
     const countMap = filteredWithCondidence.reduce(
@@ -100,11 +100,11 @@ const updateTooltipWidth = (tooltipItems: number) => {
 };
 
 const getChartOptions = (
-  annotatorData: AnnotationData,
+  annotationData: AnnotationData,
   tooltipEnabledSeriesIndexes: number[],
   onChartClick: (dataPointIndex: number) => void
 ): ApexOptions => {
-  const categories = Object.keys(annotatorData.frames).map(frameKey =>
+  const categories = Object.keys(annotationData.frames).map(frameKey =>
     parseInt(frameKey, 10)
   );
   return {
@@ -159,20 +159,20 @@ const getChartOptions = (
 
 const AnnotatorGraph = ({
   confidence,
-  annotatorData,
+  annotationData,
   tags,
   onChartClick,
 }: AnnotatorGraphProps): ReactElement => {
   const chartData: ChartData = useMemo(() => {
-    const series = getSortedSeriesData(tags, annotatorData, confidence);
+    const series = getSortedSeriesData(tags, annotationData, confidence);
     const tooltipEnabledSeriesIndexes = getTooltipEnabledSeriesIndexes(series);
     const options = getChartOptions(
-      annotatorData as any,
+      annotationData as any,
       tooltipEnabledSeriesIndexes,
       onChartClick
     );
     return { series, options, tooltipEnabledSeriesIndexes };
-  }, [confidence, annotatorData, tags]);
+  }, [confidence, annotationData, tags]);
 
   return (
     <div style={{ minWidth: "100%", height: "100px" }}>

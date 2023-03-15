@@ -1639,7 +1639,7 @@ export default class Annotator extends Component<
               {isChartEnabled && (
                 <AnnotatorGraph
                   confidence={this.state.confidence}
-                  annotatorData={this.analyticsData}
+                  annotationData={this.analyticsData}
                   tags={(this.annotationGroup as any).tags}
                   onChartClick={this.setVideoOverlayTime}
                 />
